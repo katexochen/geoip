@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/oschwald/geoip2-golang"
-	"github.com/oschwald/maxminddb-golang"
+	"github.com/oschwald/geoip2-golang/v2"
+	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/v2fly/geoip/lib"
 )
 
@@ -136,29 +136,32 @@ func (g *geoLite2CountryMMDBIn) Input(container lib.Container) (lib.Container, e
 }
 
 func (g *geoLite2CountryMMDBIn) generateEntries(content []byte, entries map[string]*lib.Entry) error {
-	db, err := maxminddb.FromBytes(content)
+	db, err := maxminddb.OpenBytes(content)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	networks := db.Networks(maxminddb.SkipAliasedNetworks)
-	for networks.Next() {
+	for network := range db.Networks() {
 		var record geoip2.Country
-		subnet, err := networks.Network(&record)
+		err := network.Decode(&record)
 		if err != nil {
 			return err
 		}
 
 		name := ""
 		switch {
-		case strings.TrimSpace(record.Country.IsoCode) != "":
-			name = strings.ToUpper(strings.TrimSpace(record.Country.IsoCode))
-		case strings.TrimSpace(record.RegisteredCountry.IsoCode) != "":
-			name = strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.IsoCode))
-		case strings.TrimSpace(record.RepresentedCountry.IsoCode) != "":
-			name = strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.IsoCode))
+		case strings.TrimSpace(record.Country.ISOCode) != "":
+			name = strings.ToUpper(strings.TrimSpace(record.Country.ISOCode))
+		case strings.TrimSpace(record.RegisteredCountry.ISOCode) != "":
+			name = strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.ISOCode))
+		case strings.TrimSpace(record.RepresentedCountry.ISOCode) != "":
+			name = strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.ISOCode))
 		default:
+			continue
+		}
+
+		if name == "" || !network.Found() {
 			continue
 		}
 
@@ -171,15 +174,11 @@ func (g *geoLite2CountryMMDBIn) generateEntries(content []byte, entries map[stri
 			entry = lib.NewEntry(name)
 		}
 
-		if err := entry.AddPrefix(subnet); err != nil {
+		if err := entry.AddPrefix(network.Prefix()); err != nil {
 			return err
 		}
 
 		entries[name] = entry
-	}
-
-	if networks.Err() != nil {
-		return networks.Err()
 	}
 
 	return nil
